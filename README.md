@@ -1,6 +1,6 @@
 ## Usage
 
-1. Place `qwen_crawler.py` in the **same directory level as `bench200`**.
+1. Place `qwen_crawler.py` in the **same directory level as `mirobench`**.
 
 2. Run the command:
 
