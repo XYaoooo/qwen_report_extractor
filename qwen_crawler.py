@@ -342,7 +342,7 @@ class QwenCrawler:
             )
             print("✅ Deep Research completion confirmed.")
             
-            time.sleep(5)  # Allow content to fully render
+            time.sleep(10)  # Allow content to fully render
             
         except TimeoutException:
             print("⚠️ Timed out waiting for research completion, but will try to extract results anyway.")
@@ -401,8 +401,63 @@ class QwenCrawler:
             return None
 
     def _extract_research_steps(self) -> str:
-        """Extracts the research steps list from the Deep Research panel."""
-        print("🔍 Extracting research steps...")
+        """Extracts detailed research steps by clicking Details and parsing the panel."""
+        print("🔍 Extracting detailed research steps...")
+        try:
+            # Step 1: Click the "Details" button to navigate to the detail panel
+            detail_button = self.wait.until(
+                EC.element_to_be_clickable((By.CSS_SELECTOR, "div.deep-research-list-top-right-detail"))
+            )
+            self.driver.execute_script("arguments[0].click();", detail_button)
+            print("   ✅ Clicked 'Details' button.")
+            time.sleep(2)
+
+            # Step 2: Wait for the detail panel to appear
+            detail_panel = WebDriverWait(self.driver, 30).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "div#research-panel-detail-content"))
+            )
+            print("   ✅ Detail panel loaded.")
+
+            # Extract all steps from the detail panel
+            html = detail_panel.get_attribute("outerHTML")
+            soup = BeautifulSoup(html, "html.parser")
+
+            # Structure: div.steps-time (title) followed by sibling div.steps-time-content (content)
+            steps = []
+            for step_header in soup.select("div.steps-time.steps-time-h5-navigation"):
+                # Extract step title
+                title_el = step_header.select_one("div.steps-time-title")
+                title = title_el.get_text(strip=True) if title_el else ""
+
+                # Content is in the next sibling div.steps-time-content, not a child
+                content = ""
+                content_sibling = step_header.find_next_sibling("div", class_="steps-time-content")
+                if content_sibling:
+                    qwen_md = content_sibling.select_one("div.steps-time-slot div.qwen-markdown")
+                    if qwen_md:
+                        content = self.html_to_markdown(str(qwen_md))
+
+                if title and content:
+                    steps.append(f"## {title}\n\n{content}")
+                elif title:
+                    steps.append(f"## {title}")
+
+            if steps:
+                result = "\n\n".join(steps)
+                print(f"✅ Extracted {len(steps)} detailed research steps.")
+                return result
+            else:
+                print("⚠️ No research steps found in detail panel.")
+                return ""
+        except (TimeoutException, NoSuchElementException):
+            print("⚠️ Detail button or panel not found, falling back to simple step extraction.")
+            return self._extract_research_steps_simple()
+        except Exception as e:
+            print(f"❌ Error extracting detailed research steps: {e}")
+            return self._extract_research_steps_simple()
+
+    def _extract_research_steps_simple(self) -> str:
+        """Fallback: extracts just the step titles from the collapsed panel."""
         try:
             panel = self.driver.find_element(
                 By.CSS_SELECTOR, "div.deep-research-list-container.research-panel"
@@ -418,16 +473,10 @@ class QwenCrawler:
 
             if steps:
                 result = "\n".join(f"{i+1}. {step}" for i, step in enumerate(steps))
-                print(f"✅ Extracted {len(steps)} research steps.")
+                print(f"✅ Fallback: Extracted {len(steps)} step titles.")
                 return result
-            else:
-                print("⚠️ No research steps found in panel.")
-                return ""
-        except NoSuchElementException:
-            print("⚠️ Research steps panel not found.")
             return ""
-        except Exception as e:
-            print(f"❌ Error extracting research steps: {e}")
+        except Exception:
             return ""
 
     def _extract_thinking_panel_deep_research_for_static(self) -> str:
